@@ -173,7 +173,7 @@ class FGR_2FA_Login {
             <p>
                 <label for="fgr_2fa_code">Sicherheitscode</label>
                 <input type="text" id="fgr_2fa_code" name="fgr_2fa_code"
-                       class="input" size="20"
+                       class="input" size="20" autofocus
                        inputmode="numeric" autocomplete="one-time-code"
                        maxlength="9" value=""
                        style="text-align:center;font-size:22px;letter-spacing:8px;font-family:monospace">
@@ -189,7 +189,7 @@ class FGR_2FA_Login {
 
             <p class="submit">
                 <input type="submit" name="fgr_2fa_submit" value="Bestätigen"
-                       class="button button-primary button-large" style="width:100%">
+                       class="button button-primary button-large">
             </p>
         </form>
 
