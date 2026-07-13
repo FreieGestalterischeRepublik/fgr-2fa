@@ -14,7 +14,7 @@ class FGR_2FA_Auth {
 
     public static function totp_generate_secret(): string {
         $secret = '';
-        for ( $i = 0; $i < 16; $i++ ) {
+        for ( $i = 0; $i < 32; $i++ ) {
             $secret .= self::BASE32[ random_int( 0, 31 ) ];
         }
         return $secret;
