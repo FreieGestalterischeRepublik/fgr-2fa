@@ -77,7 +77,6 @@
 
         ajax( 'fgr_2fa_verify_totp', { code: code }, function ( data ) {
             showBackupCodes( data.backup_codes );
-            setTimeout( function () { location.reload(); }, 3000 );
         }, function ( msg ) {
             $err.text( msg ).show();
             $btn.prop( 'disabled', false ).text( 'Bestätigen' );
@@ -119,7 +118,6 @@
 
         ajax( 'fgr_2fa_verify_email', { code: code }, function ( data ) {
             showBackupCodes( data.backup_codes );
-            setTimeout( function () { location.reload(); }, 3000 );
         }, function ( msg ) {
             $err.text( msg ).show();
             $btn.prop( 'disabled', false ).text( 'Bestätigen' );
@@ -140,6 +138,12 @@
             alert( msg );
             $btn.prop( 'disabled', false ).text( 'Neue Backup-Codes generieren' );
         } );
+    } );
+
+    // === Fertig-Button: Seite neu laden ===
+
+    $( document ).on( 'click', '#fgr-backup-done', function () {
+        location.reload();
     } );
 
     // === Alle Backup-Codes kopieren ===

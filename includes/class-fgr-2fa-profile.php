@@ -167,9 +167,14 @@ class FGR_2FA_Profile {
                     angezeigt. Jeder Code kann nur einmal verwendet werden.
                 </p>
                 <div id="fgr-backup-codes-list" class="fgr-backup-grid"></div>
-                <button type="button" id="fgr-copy-backup" class="button button-secondary">
-                    Alle kopieren
-                </button>
+                <p style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:4px">
+                    <button type="button" id="fgr-copy-backup" class="button button-secondary">
+                        Alle kopieren
+                    </button>
+                    <button type="button" id="fgr-backup-done" class="button button-primary">
+                        Codes gespeichert – Fertig
+                    </button>
+                </p>
             </div>
         </div>
         <?php
