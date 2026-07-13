@@ -2,62 +2,79 @@
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Steuert den 2FA-Login-Ablauf:
- * 1. Passwort-Check abgefangen → 2FA-Formular anzeigen
- * 2. Code prüfen → einloggen oder Fehler melden
- * 3. 2FA-Einrichtung erzwingen wenn nötig
+ * Steuert den 2FA-Login-Ablauf.
+ *
+ * Ablauf:
+ * 1. login_init (Prio 1) fängt den Login-POST früh ab
+ * 2. Passwort korrekt + 2FA nötig → Formular direkt als POST-Antwort (kein Redirect!)
+ * 3. User gibt Code ein → POST auf dieselbe URL → Code prüfen → einloggen
+ *
+ * Kein Redirect bedeutet: Browser wertet die Seite als Nutzeraktion →
+ * Fokus ist echt → Paste funktioniert ohne extra Mausklick.
  */
 class FGR_2FA_Login {
 
     public function __construct() {
-        add_filter( 'authenticate',    [ $this, 'intercept' ],        100, 3 );
-        add_action( 'wp_login_failed', [ $this, 'redirect_to_2fa' ],  10,  2 );
-        add_action( 'login_init',      [ $this, 'handle_2fa_page' ] );
-        add_action( 'admin_init',      [ $this, 'enforce_setup' ] );
+        add_action( 'login_init',  [ $this, 'handle_login_init' ], 1 );
+        add_action( 'admin_init',  [ $this, 'enforce_setup' ] );
     }
 
     // =========================================================
-    // Nach erfolgreichem Passwort-Check: 2FA einschalten
+    // Zentraler Einstiegspunkt in login_init
     // =========================================================
 
-    public function intercept( $user, $username, $password ) {
-        if ( ! ( $user instanceof WP_User ) ) return $user;
-        if ( ! self::requires_2fa( $user ) )  return $user;
-        if ( ! FGR_2FA_Auth::is_enabled( $user->ID ) ) return $user; // Noch nicht eingerichtet → erst einloggen
+    public function handle_login_init(): void {
+        $action = $_REQUEST['action'] ?? 'login';
 
+        // 2FA-Code-Übermittlung oder Formular-Anzeige
+        if ( $action === 'fgr_2fa' ) {
+            $this->handle_2fa_page();
+            return;
+        }
+
+        // Login-Formular abschicken
+        if ( $action !== 'login' || ! isset( $_POST['log'], $_POST['pwd'] ) ) {
+            return;
+        }
+
+        $raw_username = sanitize_user( wp_unslash( $_POST['log'] ) );
+        $password     = wp_unslash( $_POST['pwd'] );
+
+        // Benutzer per Login-Name oder E-Mail suchen (ohne Passwort-Prüfung)
+        $user = get_user_by( 'login', $raw_username )
+             ?: get_user_by( 'email', $raw_username );
+
+        if ( ! $user )                                      return; // Unbekannter Nutzer → WP normal
+        if ( ! self::requires_2fa( $user ) )                return; // Keine 2FA für diese Rolle
+        if ( ! FGR_2FA_Auth::is_enabled( $user->ID ) )     return; // 2FA noch nicht eingerichtet
+
+        // Passwort direkt prüfen – vermeidet doppelte Auth-Hook-Aufrufe
+        if ( ! wp_check_password( $password, $user->user_pass, $user->ID ) ) {
+            return; // Falsches Passwort → WordPress zeigt Fehlermeldung normal
+        }
+
+        // Alles OK → 2FA-Formular DIREKT als POST-Antwort rendern (kein Redirect!)
         $token = bin2hex( random_bytes( 16 ) );
         set_transient( 'fgr_2fa_pending_' . $token, $user->ID, 600 );
 
-        return new WP_Error( 'fgr_2fa_required', $token );
-    }
+        $method = FGR_2FA_Auth::get_method( $user->ID );
+        $redir  = esc_url_raw( $_POST['redirect_to'] ?? admin_url() );
 
-    // =========================================================
-    // Weiterleitung zur 2FA-Seite
-    // =========================================================
+        if ( $method === 'email' ) {
+            FGR_2FA_Auth::email_send_code( $user->ID );
+        }
 
-    public function redirect_to_2fa( string $username, WP_Error $error ): void {
-        if ( $error->get_error_code() !== 'fgr_2fa_required' ) return;
-
-        $token = $error->get_error_message( 'fgr_2fa_required' );
-        $redir = esc_url_raw( $_POST['redirect_to'] ?? admin_url() );
-
-        wp_safe_redirect( add_query_arg( [
-            'action'      => 'fgr_2fa',
-            'fgr_token'   => $token,
-            'redirect_to' => rawurlencode( $redir ),
-        ], wp_login_url() ) );
-        exit;
+        $this->render_form( $user->ID, $token, $method, $redir, '' );
+        // render_form ruft exit auf – WordPress-Login läuft nicht weiter
     }
 
     // =========================================================
     // 2FA-Seite: Formular zeigen oder Code prüfen
     // =========================================================
 
-    public function handle_2fa_page(): void {
-        if ( ( $_REQUEST['action'] ?? '' ) !== 'fgr_2fa' ) return;
-
+    private function handle_2fa_page(): void {
         $token   = sanitize_key( $_REQUEST['fgr_token'] ?? '' );
-        $redir   = esc_url_raw( rawurldecode( $_REQUEST['redirect_to'] ?? admin_url() ) );
+        $redir   = esc_url_raw( $_REQUEST['redirect_to'] ?? admin_url() );
         $user_id = (int) get_transient( 'fgr_2fa_pending_' . $token );
 
         if ( ! $user_id || ! $token ) {
@@ -75,21 +92,19 @@ class FGR_2FA_Login {
             return;
         }
 
-        // E-Mail-Code beim ersten Laden senden
-        if ( $method === 'email' && ! isset( $_GET['resend'] ) ) {
-            FGR_2FA_Auth::email_send_code( $user_id );
-        }
-
-        // Erneut senden (auf Anfrage)
-        if ( $method === 'email' && isset( $_GET['resend'] ) ) {
+        // Neuen E-Mail-Code senden (auf explizite Anfrage via resend-Link)
+        if ( $method === 'email' ) {
             FGR_2FA_Auth::email_send_code( $user_id );
         }
 
         $this->render_form( $user_id, $token, $method, $redir, '' );
     }
 
+    // =========================================================
+    // Code prüfen und einloggen
+    // =========================================================
+
     private function verify_and_login( int $user_id, string $token, string $code, string $method, string $redir ): void {
-        // Rate-Limit: max. 5 Fehlversuche pro Token
         $attempts_key = 'fgr_2fa_attempts_' . $token;
         $attempts     = (int) get_transient( $attempts_key );
 
@@ -104,7 +119,6 @@ class FGR_2FA_Login {
         $error    = '';
         $clean    = preg_replace( '/[\s\-]/', '', $code );
 
-        // Backup-Code (8 Zeichen nach Bereinigung)
         if ( strlen( $clean ) === 8 ) {
             $verified = FGR_2FA_Auth::backup_verify( $user_id, $code );
             if ( ! $verified ) $error = 'Ungültiger Backup-Code.';
@@ -133,13 +147,15 @@ class FGR_2FA_Login {
         $this->render_form( $user_id, $token, $method, $redir, $error );
     }
 
+    // =========================================================
+    // Formular rendern
+    // =========================================================
+
     private function render_form( int $user_id, string $token, string $method, string $redir, string $error ): void {
         nocache_headers();
 
-        // Fehler über WP-Standard-WP_Error → roter Fehlerkasten von login_header()
         $wp_error = $error ? new WP_Error( 'fgr_2fa_error', esc_html( $error ) ) : null;
 
-        // Hinweis über $message-Parameter → blauer Info-Kasten von login_header()
         $message = ( $method === 'email' )
             ? '<p class="message">Ein 6-stelliger Code wurde an deine E-Mail-Adresse gesendet.</p>'
             : '<p class="message">Gib den aktuellen Code aus deiner Authenticator-App ein.</p>';
@@ -148,7 +164,6 @@ class FGR_2FA_Login {
             'action'      => 'fgr_2fa',
             'fgr_token'   => $token,
             'redirect_to' => rawurlencode( $redir ),
-            'resend'      => '1',
         ], wp_login_url() );
 
         login_header( 'Zwei-Faktor-Authentifizierung', $message, $wp_error );
@@ -188,7 +203,6 @@ class FGR_2FA_Login {
 
         <script>
         ( function () {
-
             document.getElementById( 'fgr-backup-toggle' ).addEventListener( 'click', function ( e ) {
                 e.preventDefault();
                 var inp   = document.getElementById( 'fgr_2fa_code' );
@@ -222,14 +236,13 @@ class FGR_2FA_Login {
     }
 
     // =========================================================
-    // 2FA-Einrichtung erzwingen (nach Login, im Admin-Bereich)
+    // 2FA-Einrichtung erzwingen
     // =========================================================
 
     public function enforce_setup(): void {
         if ( ! is_user_logged_in() || wp_doing_ajax() ) return;
 
         global $pagenow;
-        // Nicht weiterleiten wenn Benutzer bereits auf der Profil-Seite ist
         if ( in_array( $pagenow, [ 'profile.php', 'user-edit.php' ], true ) ) return;
 
         $user = wp_get_current_user();
