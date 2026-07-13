@@ -1,0 +1,182 @@
+/* FGR 2FA – Profil-Seite */
+
+#fgr-2fa-setup {
+    margin-top: 28px;
+    max-width: 700px;
+}
+
+#fgr-2fa-setup h2 {
+    font-size: 1.3em;
+    border-bottom: 1px solid #c3c4c7;
+    padding-bottom: 10px;
+    margin-bottom: 20px;
+}
+
+.fgr-2fa-status {
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.fgr-2fa-badge {
+    display: inline-block;
+    padding: 4px 14px;
+    border-radius: 14px;
+    font-weight: 600;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.fgr-2fa-badge.active {
+    background: #d1f2d4;
+    color: #1a4a1e;
+}
+
+.fgr-2fa-badge.inactive {
+    background: #f0f0f1;
+    color: #50575e;
+}
+
+.fgr-2fa-method {
+    color: #50575e;
+    font-size: 13px;
+}
+
+.fgr-2fa-warning {
+    color: #d63638;
+    font-weight: 500;
+    margin-top: 8px;
+    width: 100%;
+}
+
+.fgr-2fa-card {
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+}
+
+.fgr-2fa-card h3 {
+    margin-top: 0;
+    font-size: 1em;
+}
+
+.fgr-2fa-setup-buttons {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.fgr-2fa-wizard {
+    background: #f9f9f9;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+}
+
+.fgr-2fa-wizard h3 {
+    margin-top: 0;
+}
+
+.fgr-2fa-wizard ol {
+    margin: 0 0 20px 18px;
+    color: #3c434a;
+}
+
+.fgr-2fa-wizard ol li {
+    margin-bottom: 6px;
+    line-height: 1.5;
+}
+
+.fgr-qr-container {
+    text-align: center;
+    padding: 12px 0;
+}
+
+.fgr-qr-container img {
+    border: 8px solid #fff;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.15);
+    border-radius: 2px;
+}
+
+.fgr-loading {
+    color: #888;
+    font-style: italic;
+    padding: 20px;
+}
+
+#fgr-totp-secret-wrap {
+    margin-top: 16px;
+}
+
+.fgr-secret-key {
+    display: inline-block;
+    background: #f0f0f1;
+    padding: 6px 14px;
+    border-radius: 3px;
+    font-size: 15px;
+    letter-spacing: 2px;
+    margin-right: 8px;
+    user-select: all;
+    cursor: text;
+}
+
+.fgr-2fa-verify-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.fgr-2fa-verify-row input.regular-text {
+    font-size: 18px !important;
+    letter-spacing: 4px;
+    text-align: center;
+    width: 150px !important;
+    padding: 6px 10px !important;
+}
+
+.fgr-error {
+    color: #d63638;
+    font-weight: 500;
+    margin-top: 10px;
+}
+
+.fgr-backup-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin: 16px 0;
+    max-width: 360px;
+}
+
+.fgr-backup-code {
+    background: #f0f0f1;
+    padding: 8px 12px;
+    border-radius: 3px;
+    font-family: monospace;
+    font-size: 14px;
+    letter-spacing: 1px;
+    text-align: center;
+}
+
+.fgr-2fa-danger-zone {
+    border-color: #f0a3a3;
+    background: #fff8f8;
+}
+
+.fgr-btn-danger {
+    color: #d63638 !important;
+    border-color: #d63638 !important;
+    background: transparent !important;
+}
+
+.fgr-btn-danger:hover {
+    background: #d63638 !important;
+    color: #fff !important;
+    border-color: #d63638 !important;
+}
