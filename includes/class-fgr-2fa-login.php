@@ -188,8 +188,12 @@ class FGR_2FA_Login {
 
         <script>
         ( function () {
-            // Feld sofort fokussieren (autofocus reicht auf manchen Browsern nicht)
-            document.getElementById( 'fgr_2fa_code' ).focus();
+            // Nach window.load fokussieren – erst dann sind alle WP-Scripts fertig
+            // und können den Fokus nicht mehr überschreiben
+            window.addEventListener( 'load', function () {
+                var inp = document.getElementById( 'fgr_2fa_code' );
+                if ( inp ) inp.focus();
+            } );
 
             document.getElementById( 'fgr-backup-toggle' ).addEventListener( 'click', function ( e ) {
                 e.preventDefault();
