@@ -135,6 +135,15 @@ class FGR_2FA_Login {
 
     private function render_form( int $user_id, string $token, string $method, string $redir, string $error ): void {
         nocache_headers();
+
+        // Fehler über WP-Standard-WP_Error → roter Fehlerkasten von login_header()
+        $wp_error = $error ? new WP_Error( 'fgr_2fa_error', esc_html( $error ) ) : null;
+
+        // Hinweis über $message-Parameter → blauer Info-Kasten von login_header()
+        $message = ( $method === 'email' )
+            ? '<p class="message">Ein 6-stelliger Code wurde an deine E-Mail-Adresse gesendet.</p>'
+            : '<p class="message">Gib den aktuellen Code aus deiner Authenticator-App ein.</p>';
+
         $resend_url = add_query_arg( [
             'action'      => 'fgr_2fa',
             'fgr_token'   => $token,
@@ -142,35 +151,21 @@ class FGR_2FA_Login {
             'resend'      => '1',
         ], wp_login_url() );
 
-        login_header( 'Zwei-Faktor-Authentifizierung' );
+        login_header( 'Zwei-Faktor-Authentifizierung', $message, $wp_error );
         ?>
-        <style>
-        .fgr-2fa-box { background:#f0f4f8; border:1px solid #c8d8e8; padding:14px 18px; border-radius:4px; margin-bottom:20px; font-size:13px; color:#3c434a; }
-        #fgr_2fa_code { font-size:22px; letter-spacing:6px; text-align:center; width:100%; box-sizing:border-box; }
-        .fgr-backup-link { display:block; text-align:right; font-size:12px; margin-top:6px; }
-        .fgr-2fa-error { color:#d63638; font-weight:500; margin-bottom:16px; padding:8px 12px; background:#fef7f7; border:1px solid #f0a3a3; border-radius:4px; }
-        </style>
-
-        <?php if ( $error ) : ?>
-            <p class="fgr-2fa-error"><?php echo esc_html( $error ); ?></p>
-        <?php endif; ?>
-
-        <div class="fgr-2fa-box">
-            <?php if ( $method === 'email' ) : ?>
-                Ein 6-stelliger Code wurde an deine E-Mail-Adresse gesendet.
-            <?php else : ?>
-                Öffne deine Authenticator-App und gib den aktuellen Code ein.
-            <?php endif; ?>
-        </div>
 
         <form name="fgr2fa" id="loginform" action="" method="post">
             <p>
-                <label for="fgr_2fa_code">6-stelliger Code</label>
+                <label for="fgr_2fa_code">Sicherheitscode</label>
                 <input type="text" id="fgr_2fa_code" name="fgr_2fa_code"
+                       class="input" size="20"
                        inputmode="numeric" autocomplete="one-time-code"
-                       maxlength="9" autofocus class="input" value="">
+                       maxlength="9" value=""
+                       style="text-align:center;font-size:22px;letter-spacing:8px;font-family:monospace">
             </p>
-            <a href="#" id="fgr-backup-toggle" class="fgr-backup-link">Backup-Code verwenden</a>
+            <p style="text-align:right;margin-top:-6px">
+                <a href="#" id="fgr-backup-toggle" style="font-size:12px">Backup-Code verwenden</a>
+            </p>
 
             <input type="hidden" name="action"      value="fgr_2fa">
             <input type="hidden" name="fgr_token"   value="<?php echo esc_attr( $token ); ?>">
@@ -183,42 +178,45 @@ class FGR_2FA_Login {
             </p>
         </form>
 
-        <?php if ( $method === 'email' ) : ?>
-        <p style="text-align:center;margin-top:14px">
+        <p id="nav">
+            <?php if ( $method === 'email' ) : ?>
             <a href="<?php echo esc_url( $resend_url ); ?>">Neuen Code senden</a>
-        </p>
-        <?php endif; ?>
-
-        <p style="text-align:center;margin-top:8px">
+            &nbsp;|&nbsp;
+            <?php endif; ?>
             <a href="<?php echo esc_url( wp_login_url() ); ?>">← Zurück zur Anmeldung</a>
         </p>
 
         <script>
-        document.getElementById('fgr-backup-toggle').addEventListener('click', function(e) {
-            e.preventDefault();
-            var inp   = document.getElementById('fgr_2fa_code');
-            var label = document.querySelector('label[for="fgr_2fa_code"]');
-            if ( inp.dataset.backup !== '1' ) {
-                inp.dataset.backup = '1';
-                inp.inputMode   = 'text';
-                inp.maxLength   = 9;
-                inp.style.letterSpacing = '2px';
-                inp.placeholder = 'XXXX-XXXX';
-                inp.value = '';
-                label.textContent = 'Backup-Code';
-                this.textContent  = '← Zurück zum normalen Code';
-            } else {
-                inp.dataset.backup = '0';
-                inp.inputMode   = 'numeric';
-                inp.maxLength   = 6;
-                inp.style.letterSpacing = '6px';
-                inp.placeholder = '';
-                inp.value = '';
-                label.textContent = '6-stelliger Code';
-                this.textContent  = 'Backup-Code verwenden';
-            }
-            inp.focus();
-        });
+        ( function () {
+            // Feld sofort fokussieren (autofocus reicht auf manchen Browsern nicht)
+            document.getElementById( 'fgr_2fa_code' ).focus();
+
+            document.getElementById( 'fgr-backup-toggle' ).addEventListener( 'click', function ( e ) {
+                e.preventDefault();
+                var inp   = document.getElementById( 'fgr_2fa_code' );
+                var label = document.querySelector( 'label[for="fgr_2fa_code"]' );
+                if ( inp.dataset.backup !== '1' ) {
+                    inp.dataset.backup      = '1';
+                    inp.inputMode           = 'text';
+                    inp.maxLength           = 9;
+                    inp.style.letterSpacing = '2px';
+                    inp.placeholder         = 'XXXX-XXXX';
+                    inp.value               = '';
+                    label.textContent       = 'Backup-Code';
+                    this.textContent        = '← Zurück zum normalen Code';
+                } else {
+                    inp.dataset.backup      = '0';
+                    inp.inputMode           = 'numeric';
+                    inp.maxLength           = 6;
+                    inp.style.letterSpacing = '8px';
+                    inp.placeholder         = '';
+                    inp.value               = '';
+                    label.textContent       = 'Sicherheitscode';
+                    this.textContent        = 'Backup-Code verwenden';
+                }
+                inp.focus();
+            } );
+        } )();
         </script>
         <?php
         login_footer();
