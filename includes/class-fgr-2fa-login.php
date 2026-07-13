@@ -189,7 +189,7 @@ class FGR_2FA_Login {
 
             <p class="submit">
                 <input type="submit" name="fgr_2fa_submit" value="Bestätigen"
-                       class="button button-primary button-large" style="width:100%">
+                       class="button button-primary button-large">
             </p>
         </form>
 
