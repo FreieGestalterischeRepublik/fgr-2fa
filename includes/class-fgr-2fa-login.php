@@ -203,6 +203,12 @@ class FGR_2FA_Login {
 
         <script>
         ( function () {
+            // Fokus nach 300ms setzen – läuft nach WP-eigenem wp_attempt_focus (200ms)
+            setTimeout( function () {
+                var el = document.getElementById( 'fgr_2fa_code' );
+                if ( el ) { el.focus(); el.select(); }
+            }, 300 );
+
             document.getElementById( 'fgr-backup-toggle' ).addEventListener( 'click', function ( e ) {
                 e.preventDefault();
                 var inp   = document.getElementById( 'fgr_2fa_code' );
@@ -231,7 +237,7 @@ class FGR_2FA_Login {
         } )();
         </script>
         <?php
-        login_footer( 'fgr_2fa_code' );
+        login_footer();
         exit;
     }
 
