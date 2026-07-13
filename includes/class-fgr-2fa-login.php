@@ -188,12 +188,6 @@ class FGR_2FA_Login {
 
         <script>
         ( function () {
-            // Nach window.load fokussieren – erst dann sind alle WP-Scripts fertig
-            // und können den Fokus nicht mehr überschreiben
-            window.addEventListener( 'load', function () {
-                var inp = document.getElementById( 'fgr_2fa_code' );
-                if ( inp ) inp.focus();
-            } );
 
             document.getElementById( 'fgr-backup-toggle' ).addEventListener( 'click', function ( e ) {
                 e.preventDefault();
@@ -223,7 +217,7 @@ class FGR_2FA_Login {
         } )();
         </script>
         <?php
-        login_footer();
+        login_footer( 'fgr_2fa_code' );
         exit;
     }
 
