@@ -188,8 +188,8 @@ class FGR_2FA_Login {
             <?php wp_nonce_field( 'fgr_2fa_verify_' . $token, 'fgr_2fa_nonce' ); ?>
 
             <p class="submit">
-                <input type="submit" name="fgr_2fa_submit" id="wp-submit" value="Bestätigen"
-                       class="button button-primary button-large">
+                <input type="submit" name="fgr_2fa_submit" value="Bestätigen"
+                       class="button button-primary button-large" style="width:100%">
             </p>
         </form>
 
