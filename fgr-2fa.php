@@ -2,18 +2,18 @@
 /**
  * Plugin Name:  FGR 2FA
  * Description:  Zwei-Faktor-Authentifizierung für WordPress. Unterstützt TOTP (Authenticator-App), E-Mail-Code und Backup-Codes. Konfigurierbar nach Benutzerrolle.
- * Version:      1.0.13
+ * Version:      1.0.14
  * Author:       Freie Gestalterische Republik
  * Author URI:   https://fgr.design
  * License:      GPL-2.0-or-later
- * Requires PHP: 8.0
+ * Requires PHP: 7.4
  * Requires at least: 6.0
  * Text Domain:  fgr-2fa
  */
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'FGR_2FA_VERSION', '1.0.13' );
+define( 'FGR_2FA_VERSION', '1.0.14' );
 define( 'FGR_2FA_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'FGR_2FA_URL',     plugin_dir_url( __FILE__ ) );
 
