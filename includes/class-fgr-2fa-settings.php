@@ -25,6 +25,7 @@ class FGR_2FA_Settings {
 
     public function handle_save(): void {
         if ( ! isset( $_POST['fgr_2fa_save'] ) ) return;
+        if ( ! current_user_can( is_multisite() ? 'manage_network_options' : 'manage_options' ) ) return;
         check_admin_referer( 'fgr_2fa_save', 'fgr_2fa_nonce' );
 
         $roles = array_map( 'sanitize_key', (array) ( $_POST['required_roles'] ?? [] ) );
@@ -39,7 +40,7 @@ class FGR_2FA_Settings {
     }
 
     public function render_page(): void {
-        if ( ! current_user_can( 'manage_options' ) ) return;
+        if ( ! current_user_can( is_multisite() ? 'manage_network_options' : 'manage_options' ) ) return;
         settings_errors( 'fgr_2fa' );
 
         $opt            = fgr_2fa_get_option();

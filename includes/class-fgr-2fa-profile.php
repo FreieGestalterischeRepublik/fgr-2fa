@@ -27,10 +27,19 @@ class FGR_2FA_Profile {
             [],
             FGR_2FA_VERSION
         );
+        // Lokal gebündelter QR-Code-Generator (kein externer Dienst): das TOTP-Secret
+        // verlässt so nie den eigenen Server.
+        wp_enqueue_script(
+            'fgr-2fa-qrcode',
+            FGR_2FA_URL . 'assets/js/qrcode.min.js',
+            [],
+            FGR_2FA_VERSION,
+            true
+        );
         wp_enqueue_script(
             'fgr-2fa-profile',
             FGR_2FA_URL . 'assets/js/fgr-2fa-profile.js',
-            [ 'jquery' ],
+            [ 'jquery', 'fgr-2fa-qrcode' ],
             FGR_2FA_VERSION,
             true
         );
@@ -194,24 +203,38 @@ class FGR_2FA_Profile {
         $user    = wp_get_current_user();
         $secret  = FGR_2FA_Auth::totp_generate_secret();
         set_transient( 'fgr_2fa_setup_secret_' . $user_id, $secret, 600 );
-        $label  = get_bloginfo( 'name' ) . ':' . $user->user_email;
-        $qr_url = FGR_2FA_Auth::totp_get_qr_url( $label, $secret );
-        wp_send_json_success( [ 'qr_url' => $qr_url, 'secret' => $secret ] );
+        $label = get_bloginfo( 'name' ) . ':' . $user->user_email;
+        $uri   = FGR_2FA_Auth::totp_get_otpauth_uri( $label, $secret );
+        wp_send_json_success( [ 'uri' => $uri, 'secret' => $secret ] );
     }
 
     public function ajax_verify_totp(): void {
         $this->check_nonce();
         $user_id = get_current_user_id();
-        $code    = sanitize_text_field( $_POST['code'] ?? '' );
-        $secret  = get_transient( 'fgr_2fa_setup_secret_' . $user_id );
+        if ( $this->setup_rate_limited( $user_id, 'totp' ) ) {
+            wp_send_json_error( 'Zu viele Fehlversuche. Bitte lade die Seite neu und versuche es erneut.' );
+        }
+        $code   = sanitize_text_field( $_POST['code'] ?? '' );
+        $secret = get_transient( 'fgr_2fa_setup_secret_' . $user_id );
         if ( ! $secret ) {
             wp_send_json_error( 'Sitzung abgelaufen. Bitte Seite neu laden.' );
         }
-        if ( ! FGR_2FA_Auth::totp_verify( $secret, $code ) ) {
+        if ( ! FGR_2FA_Auth::totp_verify( $user_id, $secret, $code ) ) {
+            $this->setup_register_failure( $user_id, 'totp' );
             wp_send_json_error( 'Ungültiger Code. Bitte prüfe die Uhrzeit auf deinem Gerät.' );
         }
         $backup_codes = FGR_2FA_Auth::activate_totp( $user_id, $secret );
         wp_send_json_success( [ 'backup_codes' => $backup_codes ] );
+    }
+
+    /** Einfaches Versuchslimit für die Einrichtungs-Codes (TOTP-Bestätigung, E-Mail-Code). */
+    private function setup_rate_limited( int $user_id, string $type ): bool {
+        return (int) get_transient( 'fgr_2fa_setup_fails_' . $type . '_' . $user_id ) >= 5;
+    }
+
+    private function setup_register_failure( int $user_id, string $type ): void {
+        $key = 'fgr_2fa_setup_fails_' . $type . '_' . $user_id;
+        set_transient( $key, (int) get_transient( $key ) + 1, 600 );
     }
 
     public function ajax_send_email(): void {
@@ -226,8 +249,12 @@ class FGR_2FA_Profile {
     public function ajax_verify_email(): void {
         $this->check_nonce();
         $user_id = get_current_user_id();
-        $code    = sanitize_text_field( $_POST['code'] ?? '' );
+        if ( $this->setup_rate_limited( $user_id, 'email' ) ) {
+            wp_send_json_error( 'Zu viele Fehlversuche. Bitte lade die Seite neu und versuche es erneut.' );
+        }
+        $code = sanitize_text_field( $_POST['code'] ?? '' );
         if ( ! FGR_2FA_Auth::email_verify_code( $user_id, $code ) ) {
+            $this->setup_register_failure( $user_id, 'email' );
             wp_send_json_error( 'Ungültiger oder abgelaufener Code.' );
         }
         $backup_codes = FGR_2FA_Auth::activate_email( $user_id );

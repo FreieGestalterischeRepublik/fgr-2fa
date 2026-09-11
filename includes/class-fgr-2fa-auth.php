@@ -56,22 +56,30 @@ class FGR_2FA_Auth {
         return str_pad( (string) $code, 6, '0', STR_PAD_LEFT );
     }
 
-    public static function totp_verify( string $secret, string $code, int $window = 1 ): bool {
+    /**
+     * Prüft einen TOTP-Code. $user_id wird für Replay-Schutz benötigt: ein einmal
+     * erfolgreich verwendeter Zeitschritt wird gesperrt, damit ein abgefangener/erspähter
+     * Code nicht innerhalb seines Gültigkeitsfensters ein zweites Mal funktioniert.
+     */
+    public static function totp_verify( int $user_id, string $secret, string $code, int $window = 1 ): bool {
         $code = preg_replace( '/\s/', '', $code );
         if ( strlen( $code ) !== 6 || ! ctype_digit( $code ) ) return false;
-        $step = (int) floor( time() / 30 );
+        $step      = (int) floor( time() / 30 );
+        $last_used = (int) get_user_meta( $user_id, 'fgr_2fa_totp_last_step', true );
         for ( $i = -$window; $i <= $window; $i++ ) {
-            if ( hash_equals( self::totp_get_code( $secret, $step + $i ), $code ) ) {
+            $candidate = $step + $i;
+            if ( $candidate <= $last_used ) continue; // bereits verwendeter oder älterer Zeitschritt
+            if ( hash_equals( self::totp_get_code( $secret, $candidate ), $code ) ) {
+                update_user_meta( $user_id, 'fgr_2fa_totp_last_step', $candidate );
                 return true;
             }
         }
         return false;
     }
 
-    /** Gibt die QR-Code-URL für den TOTP-Setup zurück (externer QR-Dienst). */
-    public static function totp_get_qr_url( string $label, string $secret ): string {
-        $uri = 'otpauth://totp/' . rawurlencode( $label ) . '?secret=' . $secret . '&digits=6&period=30';
-        return 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' . rawurlencode( $uri );
+    /** Gibt die otpauth://-URI für den TOTP-Setup zurück; der QR-Code wird lokal im Browser gerendert. */
+    public static function totp_get_otpauth_uri( string $label, string $secret ): string {
+        return 'otpauth://totp/' . rawurlencode( $label ) . '?secret=' . $secret . '&digits=6&period=30';
     }
 
     // =========================================================
@@ -123,17 +131,43 @@ class FGR_2FA_Auth {
         return $codes;
     }
 
-    /** Prüft einen Backup-Code und löscht ihn bei Erfolg (Einmalverwendung). */
+    /**
+     * Prüft einen Backup-Code und löscht ihn bei Erfolg (Einmalverwendung).
+     * Schreibt per Compare-and-Swap direkt über $wpdb zurück (statt get_user_meta +
+     * update_user_meta), damit zwei gleichzeitige Anfragen mit demselben Code nicht
+     * beide erfolgreich sein können (Race Condition).
+     */
     public static function backup_verify( int $user_id, string $code ): bool {
-        $code   = strtoupper( preg_replace( '/[\s\-]/', '', $code ) );
-        $stored = get_user_meta( $user_id, 'fgr_2fa_backup_codes', true );
-        $hashes = json_decode( $stored ?: '[]', true );
-        foreach ( (array) $hashes as $i => $hash ) {
-            if ( password_verify( $code, $hash ) ) {
-                unset( $hashes[ $i ] );
-                update_user_meta( $user_id, 'fgr_2fa_backup_codes', wp_json_encode( array_values( $hashes ) ) );
-                return true;
+        global $wpdb;
+        $code = strtoupper( preg_replace( '/[\s\-]/', '', $code ) );
+
+        for ( $try = 0; $try < 3; $try++ ) {
+            $stored = get_user_meta( $user_id, 'fgr_2fa_backup_codes', true );
+            $hashes = (array) json_decode( $stored ?: '[]', true );
+
+            $match_i = null;
+            foreach ( $hashes as $i => $hash ) {
+                if ( password_verify( $code, $hash ) ) {
+                    $match_i = $i;
+                    break;
+                }
             }
+            if ( null === $match_i ) return false;
+
+            unset( $hashes[ $match_i ] );
+            $new = wp_json_encode( array_values( $hashes ) );
+
+            $updated = $wpdb->update(
+                $wpdb->usermeta,
+                [ 'meta_value' => $new ],
+                [ 'user_id' => $user_id, 'meta_key' => 'fgr_2fa_backup_codes', 'meta_value' => $stored ],
+                [ '%s' ],
+                [ '%d', '%s', '%s' ]
+            );
+            wp_cache_delete( $user_id, 'user_meta' );
+
+            if ( $updated > 0 ) return true;
+            // Zwischenzeitlich von einer parallelen Anfrage geändert → mit aktuellem Stand erneut versuchen.
         }
         return false;
     }
@@ -141,6 +175,31 @@ class FGR_2FA_Auth {
     public static function backup_count( int $user_id ): int {
         $stored = get_user_meta( $user_id, 'fgr_2fa_backup_codes', true );
         return count( (array) json_decode( $stored ?: '[]', true ) );
+    }
+
+    // =========================================================
+    // Nutzerbezogenes Rate-Limit für Login-Versuche
+    // =========================================================
+    // Das Limit von 5 Fehlversuchen pro Login-Token (siehe FGR_2FA_Login) reicht allein
+    // nicht: ein Angreifer mit korrektem Passwort könnte beliebig oft einen neuen Token
+    // anfordern und so den 6-stelligen TOTP-Coderaum über viele Anläufe brute-forcen.
+    // Dieses Limit zählt Fehlversuche pro Nutzer, unabhängig vom Token.
+
+    private const USER_MAX_ATTEMPTS    = 10;
+    private const USER_LOCKOUT_SECONDS = 900; // 15 Minuten
+
+    public static function login_rate_limited( int $user_id ): bool {
+        return (int) get_transient( 'fgr_2fa_user_fails_' . $user_id ) >= self::USER_MAX_ATTEMPTS;
+    }
+
+    public static function login_register_failure( int $user_id ): void {
+        $key = 'fgr_2fa_user_fails_' . $user_id;
+        $n   = (int) get_transient( $key );
+        set_transient( $key, $n + 1, self::USER_LOCKOUT_SECONDS );
+    }
+
+    public static function login_clear_failures( int $user_id ): void {
+        delete_transient( 'fgr_2fa_user_fails_' . $user_id );
     }
 
     // =========================================================
@@ -177,6 +236,7 @@ class FGR_2FA_Auth {
     public static function disable( int $user_id ): void {
         delete_user_meta( $user_id, 'fgr_2fa_method' );
         delete_user_meta( $user_id, 'fgr_2fa_totp_secret' );
+        delete_user_meta( $user_id, 'fgr_2fa_totp_last_step' );
         delete_user_meta( $user_id, 'fgr_2fa_backup_codes' );
     }
 }

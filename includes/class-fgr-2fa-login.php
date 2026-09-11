@@ -73,8 +73,11 @@ class FGR_2FA_Login {
     // =========================================================
 
     private function handle_2fa_page(): void {
-        $token   = sanitize_key( $_REQUEST['fgr_token'] ?? '' );
-        $redir   = esc_url_raw( $_REQUEST['redirect_to'] ?? admin_url() );
+        // Token nur per POST akzeptieren: als GET-Parameter würde er in Browser-Verlauf
+        // und Server-/Proxy-Logs landen. Die einzigen Einstiegspunkte sind das Code-Formular
+        // (POST) und der „Neuen Code senden"-Button (ebenfalls POST, siehe render_form()).
+        $token   = sanitize_key( wp_unslash( $_POST['fgr_token'] ?? '' ) );
+        $redir   = esc_url_raw( wp_unslash( $_POST['redirect_to'] ?? admin_url() ) );
         $user_id = (int) get_transient( 'fgr_2fa_pending_' . $token );
 
         if ( ! $user_id || ! $token ) {
@@ -87,14 +90,17 @@ class FGR_2FA_Login {
         // Code-Übermittlung verarbeiten
         if ( isset( $_POST['fgr_2fa_submit'] ) ) {
             check_admin_referer( 'fgr_2fa_verify_' . $token, 'fgr_2fa_nonce' );
-            $code = sanitize_text_field( $_POST['fgr_2fa_code'] ?? '' );
+            $code = sanitize_text_field( wp_unslash( $_POST['fgr_2fa_code'] ?? '' ) );
             $this->verify_and_login( $user_id, $token, $code, $method, $redir );
             return;
         }
 
-        // Neuen E-Mail-Code senden (auf explizite Anfrage via resend-Link)
-        if ( $method === 'email' ) {
-            FGR_2FA_Auth::email_send_code( $user_id );
+        // Neuen E-Mail-Code senden (auf explizite Anfrage über den „Neuen Code senden"-Button)
+        if ( isset( $_POST['fgr_2fa_resend'] ) ) {
+            check_admin_referer( 'fgr_2fa_resend_' . $token, 'fgr_2fa_resend_nonce' );
+            if ( $method === 'email' ) {
+                FGR_2FA_Auth::email_send_code( $user_id );
+            }
         }
 
         $this->render_form( $user_id, $token, $method, $redir, '' );
@@ -105,6 +111,14 @@ class FGR_2FA_Login {
     // =========================================================
 
     private function verify_and_login( int $user_id, string $token, string $code, string $method, string $redir ): void {
+        // Nutzerbezogenes Limit (unabhängig vom Token): verhindert, dass ein Angreifer das
+        // Pro-Token-Limit unten durch beliebig viele neue Login-Versuche umgeht.
+        if ( FGR_2FA_Auth::login_rate_limited( $user_id ) ) {
+            delete_transient( 'fgr_2fa_pending_' . $token );
+            $this->render_form( $user_id, $token, $method, $redir, 'Zu viele Fehlversuche. Bitte versuche es in 15 Minuten erneut.' );
+            return;
+        }
+
         $attempts_key = 'fgr_2fa_attempts_' . $token;
         $attempts     = (int) get_transient( $attempts_key );
 
@@ -124,7 +138,7 @@ class FGR_2FA_Login {
             if ( ! $verified ) $error = 'Ungültiger Backup-Code.';
         } elseif ( $method === 'totp' ) {
             $secret   = FGR_2FA_Auth::get_totp_secret( $user_id );
-            $verified = FGR_2FA_Auth::totp_verify( $secret, $code );
+            $verified = FGR_2FA_Auth::totp_verify( $user_id, $secret, $code );
             if ( ! $verified ) $error = 'Ungültiger Code. Bitte prüfe die Uhrzeit auf deinem Gerät.';
         } elseif ( $method === 'email' ) {
             $verified = FGR_2FA_Auth::email_verify_code( $user_id, $code );
@@ -136,6 +150,7 @@ class FGR_2FA_Login {
         if ( $verified ) {
             delete_transient( 'fgr_2fa_pending_' . $token );
             delete_transient( $attempts_key );
+            FGR_2FA_Auth::login_clear_failures( $user_id );
             $user = get_user_by( 'id', $user_id );
             wp_set_auth_cookie( $user_id, false );
             do_action( 'wp_login', $user->user_login, $user );
@@ -144,6 +159,7 @@ class FGR_2FA_Login {
         }
 
         set_transient( $attempts_key, $attempts + 1, 600 );
+        FGR_2FA_Auth::login_register_failure( $user_id );
         $this->render_form( $user_id, $token, $method, $redir, $error );
     }
 
@@ -159,12 +175,6 @@ class FGR_2FA_Login {
         $message = ( $method === 'email' )
             ? '<p class="message">Ein 6-stelliger Code wurde an deine E-Mail-Adresse gesendet.</p>'
             : '<p class="message">Gib den aktuellen Code aus deiner Authenticator-App ein.</p>';
-
-        $resend_url = add_query_arg( [
-            'action'      => 'fgr_2fa',
-            'fgr_token'   => $token,
-            'redirect_to' => rawurlencode( $redir ),
-        ], wp_login_url() );
 
         login_header( 'Zwei-Faktor-Authentifizierung', $message, $wp_error );
         ?>
@@ -195,11 +205,22 @@ class FGR_2FA_Login {
 
         <p id="nav">
             <?php if ( $method === 'email' ) : ?>
-            <a href="<?php echo esc_url( $resend_url ); ?>">Neuen Code senden</a>
+            <form method="post" action="<?php echo esc_url( wp_login_url() ); ?>" style="display:inline">
+                <input type="hidden" name="action"          value="fgr_2fa">
+                <input type="hidden" name="fgr_token"       value="<?php echo esc_attr( $token ); ?>">
+                <input type="hidden" name="redirect_to"     value="<?php echo esc_attr( $redir ); ?>">
+                <input type="hidden" name="fgr_2fa_resend"  value="1">
+                <?php wp_nonce_field( 'fgr_2fa_resend_' . $token, 'fgr_2fa_resend_nonce' ); ?>
+                <button type="submit" class="fgr-2fa-link-button">Neuen Code senden</button>
+            </form>
             &nbsp;|&nbsp;
             <?php endif; ?>
             <a href="<?php echo esc_url( wp_login_url() ); ?>">← Zurück zur Anmeldung</a>
         </p>
+        <style>
+        .fgr-2fa-link-button{background:none;border:none;padding:0;margin:0;color:#2271b1;text-decoration:underline;cursor:pointer;font-size:13px;font-family:inherit;vertical-align:baseline}
+        .fgr-2fa-link-button:hover{color:#135e96}
+        </style>
 
         <script>
         ( function () {

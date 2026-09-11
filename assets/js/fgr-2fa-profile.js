@@ -26,7 +26,7 @@
         var $display = $( '#fgr-backup-codes-display' );
         var $list    = $( '#fgr-backup-codes-list' ).empty();
         codes.forEach( function ( code ) {
-            $list.append( '<div class="fgr-backup-code">' + code + '</div>' );
+            $( '<div class="fgr-backup-code"></div>' ).text( code ).appendTo( $list );
         } );
         $display.show();
         $display[0].scrollIntoView( { behavior: 'smooth', block: 'start' } );
@@ -39,16 +39,20 @@
         var $wizard = $( '#fgr-totp-wizard' ).show();
 
         if ( ! secret ) {
-            $( '#fgr-totp-qr' ).html( '<p class="fgr-loading">QR-Code wird generiert…</p>' );
+            $( '#fgr-totp-qr' ).empty().append( $( '<p class="fgr-loading"></p>' ).text( 'QR-Code wird generiert…' ) );
             ajax( 'fgr_2fa_get_totp', {}, function ( data ) {
                 secret = data.secret;
-                $( '#fgr-totp-qr' ).html(
-                    '<img src="' + data.qr_url + '" width="200" height="200" alt="QR-Code">'
-                );
+                // QR-Code wird lokal im Browser gerendert (kein Versand des Secrets an einen externen Dienst).
+                $( '#fgr-totp-qr' ).empty();
+                new QRCode( document.getElementById( 'fgr-totp-qr' ), {
+                    text: data.uri,
+                    width: 200,
+                    height: 200
+                } );
                 $( '#fgr-totp-secret' ).text( data.secret.replace( /(.{4})/g, '$1 ' ).trim() );
                 $( '#fgr-totp-secret-wrap' ).show();
             }, function ( msg ) {
-                $( '#fgr-totp-qr' ).html( '<p class="fgr-error">' + msg + '</p>' );
+                $( '#fgr-totp-qr' ).empty().append( $( '<p class="fgr-error"></p>' ).text( msg ) );
             } );
         }
 
